@@ -240,8 +240,8 @@ for (database in databases){
   for (outcomeId in outcomeIds){
     if(dir.exists(file.path("StackingEnsembles", database, outcomeId))){
       testPrediction <- readRDS(file.path("StackingEnsembles", database, outcomeId, "testPrediction.Rds"))
-      
       cvPrediction <- readRDS(file.path("StackingEnsembles", database, outcomeId, "cvPrediction.Rds"))
+      
       try({
         dataF <- cvPrediction[,-1]
         lrMod <- glm(outcome ~ ., data = dataF, family = "binomial")
