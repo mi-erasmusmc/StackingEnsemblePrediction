@@ -1,3 +1,5 @@
+########## base learners #################
+
 library(PatientLevelPrediction) 
 options(andromedaTempFolder = "location with space to save big data")
 
@@ -15,6 +17,10 @@ splitSettings <- createDefaultSplitSetting(testFraction = 0.25,
                                            splitSeed = 42,
                                            nfold=3,
                                            type = 'stratified')
+
+# create the settings specifying any under/over sampling 
+# in this example we do not do any
+sampleSettings <- createSampleSettings(type = 'none')
 
 # specify any feature engineering that will be applied to the train data
 # in this example we do not do any
@@ -58,7 +64,7 @@ logSettings <- createLogSettings(verbosity = 'DEBUG',
 # specify what parts of the analysis to run:
 # in this example we run everything
 executeSettings <- createExecuteSettings(runSplitData = T,
-                                         runSampleData = T,
+                                         runSampleData = F,
                                          runfeatureEngineering = F,
                                          runPreprocessData = T,
                                          runModelDevelopment = T,
@@ -69,18 +75,15 @@ executeSettings <- createExecuteSettings(runSplitData = T,
 # sampleSettings <- createSampleSettings(type = 'none')
 
 #******** ********** *********
+# hyperparameter tuning settings matched to current default values in PLP
 
-method = 'xgbModel'
-modelSettings <- setGradientBoostingMachine(seed = 42,
-                                            ntrees = c(100,300),
-                                            nthread = 4,
-                                            earlyStopRound = NULL,
-                                            maxDepth = c(4,6,8),
-                                            minRows = 2,
-                                            learnRate = c(0.01,0.05,0.1,0.3))
+method = "lassoCyclops"
+modelSettings <- setLassoLogisticRegression(seed = 42)
 
-# method = "lasso"
-# modelSettings <- setLassoLogisticRegressionInR()
+# method = "decisiontree"
+# modelSettings <- setDecisionTree(seed = as.integer(42),
+#                                  classWeight = list(NULL),
+#                                  maxFeatures = list(100,'sqrt', NULL))
 
 # method = "randomforest"
 # modelSettings <- setRandomForest(seed = 42,
@@ -92,15 +95,30 @@ modelSettings <- setGradientBoostingMachine(seed = 42,
 #                                  maxSamples= list(NULL, 0.9),
 #                                  classWeight = list(NULL))
 
-imbalance_ratios <- c(20,10,2,1)
+# method = "adaboost"
+# modelSettings <- setAdaBoost(seed = 42)
+
+# method = 'xgbModel'
+# modelSettings <- setGradientBoostingMachine(seed = 42,
+#                                             ntrees = c(100,300),
+#                                             nthread = 4,
+#                                             earlyStopRound = NULL,
+#                                             maxDepth = c(4,6,8),
+#                                             minRows = 2,
+#                                             learnRate = c(0.01,0.05,0.1,0.3))
+
+# method = "mlp"
+# modelSettings <- setMLP(seed = 42,
+#                         hiddenLayerSizes = list(c(100), c(20)), 
+#                         epsilon = list(0.00000001)) 
+
 
 for (outcomeId in outcomeIds){
   
   try({
-    saveDirectory = paste0('DepressionOutcomesResults/')
+    saveDirectory = paste0('DepressionOutcomesResults/', database_name, "/", outcomeId)
     
     analysisId <- method
-    sampleSettings <- createSampleSettings()
     
     finalModel <- runPlp(plpData = plpData,
                          outcomeId = as.numeric(outcomeId),
@@ -115,105 +133,266 @@ for (outcomeId in outcomeIds){
                          executeSettings = executeSettings,
                          saveDirectory = saveDirectory)
     saveRDS(finalModel$model, paste0(saveDirectory,"/", method, "/plpResult/model.rds"))
-    
-    i = 0
-    for (numberOutcomestoNonOutcomes in 1/imbalance_ratios){
-      i = i + 1
-      analysisId <- paste0(method, '_undersampled_test', i)
-      sampleSettings <- createSampleSettings(sampleSeed = 42, 
-                                             type = 'underSample', 
-                                             numberOutcomestoNonOutcomes = numberOutcomestoNonOutcomes)
-      
-      result <- runPlp(plpData = plpData,
-                       outcomeId = as.numeric(outcomeId),
-                       analysisId = analysisId,
-                       populationSettings = populationSettings,
-                       splitSettings = splitSettings,
-                       sampleSettings = sampleSettings,
-                       featureEngineeringSettings = featureEngineeringSettings,
-                       preprocessSettings = preprocessSettings,
-                       modelSettings = modelSettings,
-                       logSettings = logSettings,
-                       executeSettings = executeSettings,
-                       saveDirectory = saveDirectory)
-      saveRDS(result$model, paste0(saveDirectory,"/",analysisId,"/plpResult/model.rds"))
-    }
-    analysisId = paste0(method, "_original")
-    readResults <- readRDS(paste0(saveDirectory,"/", method, "/plpResult/runPlp.rds"))
-    saveResult <- cbind(analysisId, readResults$performanceEvaluation$evaluationStatistics)
-    rm(readResults)
-    readModel <- readRDS(paste0(saveDirectory,"/", method, "/plpResult/model.rds"))
-    saveModel <- cbind(analysisId, readModel$settings$modelSettings$finalModelParameters)
-    rm(readModel)
-    i = 0
-    for (numberOutcomestoNonOutcomes in 1/imbalance_ratios){
-      i = i + 1
-      analysisId <- paste0(method, '_undersampled_', numberOutcomestoNonOutcomes)
-      readResults <- tryCatch(readRDS(paste0(saveDirectory,"/", method, "_undersampled_test",i,"/plpResult/runPlp.rds")))
-      saveResult <- tryCatch(rbind(saveResult, cbind(analysisId, readResults$performanceEvaluation$evaluationStatistics)))
-      rm(readResults)
-      readModel <- tryCatch(readRDS(paste0(saveDirectory,"/", method, "_undersampled_test",i,"/plpResult/model.rds")))
-      saveModel <- tryCatch(rbind(saveModel, cbind(analysisId, readModel$settings$modelSettings$finalModelParameters)))
-      rm(readModel)
-    }
-    
-    df1 <- data.frame(saveResult)
-    saveRDS(df1, file = paste0(saveDirectory, "/results_undersampling.Rds"))
-    df1_model <- data.frame(saveModel)
-    saveRDS(df1_model, file = paste0(saveDirectory, "/models_undersampling.Rds"))
-    
-    #******** ********** *********
-    
-    i = 0
-    for (numberOutcomestoNonOutcomes in 1/imbalance_ratios){
-      i = i + 1
-      analysisId <- paste0(method, '_oversampled_test', i)
-      sampleSettings <- createSampleSettings(sampleSeed = 42, 
-                                             type = 'overSample', 
-                                             numberOutcomestoNonOutcomes = numberOutcomestoNonOutcomes)
-      
-      result <- runPlp(plpData = plpData,
-                       outcomeId = as.numeric(outcomeId),
-                       analysisId = analysisId,
-                       populationSettings = populationSettings,
-                       splitSettings = splitSettings,
-                       sampleSettings = sampleSettings,
-                       featureEngineeringSettings = featureEngineeringSettings,
-                       preprocessSettings = preprocessSettings,
-                       modelSettings = modelSettings,
-                       logSettings = logSettings,
-                       executeSettings = executeSettings,
-                       saveDirectory = saveDirectory)
-      saveRDS(result$model, paste0(saveDirectory,"/",analysisId,"/plpResult/model.rds"))
-    }
-    
-    analysisId = paste0(method, "_original")
-    readResults <- readRDS(paste0(saveDirectory,"/", method, "/plpResult/runPlp.rds"))
-    saveResult <- cbind(analysisId, readResults$performanceEvaluation$evaluationStatistics)
-    rm(readResults)
-    readModel <- readRDS(paste0(saveDirectory,"/", method, "/plpResult/model.rds"))
-    saveModel <- cbind(analysisId, readModel$settings$modelSettings$finalModelParameters)
-    rm(readModel)
-    i = 0
-    for (numberOutcomestoNonOutcomes in 1/imbalance_ratios){
-      i = i + 1
-      analysisId <- paste0(method, '_oversampled_', numberOutcomestoNonOutcomes)
-      readResults <- tryCatch(readRDS(paste0(saveDirectory,"/", method, "_oversampled_test",i,"/plpResult/runPlp.rds")))
-      saveResult <- tryCatch(rbind(saveResult, cbind(analysisId, readResults$performanceEvaluation$evaluationStatistics)))
-      rm(readResults)
-      readModel <- tryCatch(readRDS(paste0(saveDirectory,"/", method, "_oversampled_test",i,"/plpResult/model.rds")))
-      saveModel <- tryCatch(rbind(saveModel, cbind(analysisId, readModel$settings$modelSettings$finalModelParameters)))
-      rm(readModel)
-    }
-    
-    df2 <- data.frame(saveResult)
-    saveRDS(df2, file = paste0(saveDirectory, "/results_oversampling.Rds"))
-    df2_model <- data.frame(saveModel)
-    saveRDS(df2_model, file = paste0(saveDirectory, "/models_oversampling.Rds"))
-    
-    df3 <- unique(rbind(df1,df2))
-    saveRDS(df3, file = paste0(saveDirectory, "/results_all.Rds"))
-    df3_model <- unique(rbind(df1_model, df2_model))
-    saveRDS(df3_model, file = paste0(saveDirectory, "/models_all.Rds"))
   })
 }
+
+
+########## stacking ensembles #################
+
+library(stringr)
+library(dplyr)
+
+evalType = "CV"
+databases <- c("CCAE", "MDCD", "MDCR", "Germany")
+classifiers <- c("lassoCyclops", "decisiontree", "randomforest", "xgbModel", "adaboost", "mlp")
+
+# base learner AUCs on CV
+for (database in databases){
+  for (outcomeId in outcomeIds){
+    res <- list()
+    for (classifier in classifiers){
+      if (dir.exists(file.path("DepressionOutcomesResults", database, outcomeId, classifier))){
+        auc <- readRDS(file.path("DepressionOutcomesResults", database, outcomeId, classifier, "plpResult/runPlp.rds"))$performanceEvaluation$evaluationStatistics
+        res[[classifier]] <- auc %>% filter(evaluation == evalType & metric == "AUROC") 
+      }
+    }
+    if (length(res)!=length(classifiers)){
+      stop("missing classifier")
+    }
+    aucs <- do.call(cbind, res)
+    aucs <- aucs[,grep('value',colnames(aucs))]
+    colnames(aucs) <- gsub('\\.value','', colnames(aucs))
+    saveRDS(aucs, file.path("StackingEnsembles", database, outcomeId, "aucs.Rds"))
+  }
+}
+
+# base learner predictions on CV
+for (database in databases){
+  for (outcomeId in outcomeIds){
+    res <- list()
+    for (classifier in classifiers){
+      if (dir.exists(file.path("DepressionOutcomesResults", database, outcomeId, classifier))){
+        pred <- readRDS(file.path("DepressionOutcomesResults", database, outcomeId, classifier, "plpResult/runPlp.rds"))$prediction
+        res[[classifier]] <- pred %>% filter(evaluationType==evalType) %>% select(rowId, value, outcomeCount)
+      }
+    }
+    if (length(res)!=length(classifiers)){
+      stop("missing classifier")
+    }
+    cvPrediction <- do.call(cbind, res)
+    cvPrediction <- cbind(rowId = cvPrediction[,c(1,3)],cvPrediction[,grep('value',colnames(cvPrediction))])
+    colnames(cvPrediction) <- gsub('\\.value','', colnames(cvPrediction))
+    colnames(cvPrediction)[1:2] <- c('rowId', 'outcome')
+    dir.create(file.path("StackingEnsembles", database, outcomeId), recursive = TRUE)
+    saveRDS(cvPrediction, file.path("StackingEnsembles", database, outcomeId, "cvPrediction.Rds"))
+  }
+}
+
+# base learner predictions on test set (internal validation)
+for (database in databases){
+  for (outcomeId in outcomeIds){
+    res <- list()
+    for (classifier in classifiers){
+      if (dir.exists(file.path("DepressionOutcomesResults", database, outcomeId, classifier))){
+        pred <- readRDS(file.path("DepressionOutcomesResults", database, outcomeId, classifier, "plpResult/runPlp.rds"))$prediction
+        res[[classifier]] <- pred %>% filter(evaluationType=="Test") %>% select(rowId, value, outcomeCount)
+      }
+    }
+    if (length(res)!=length(classifiers)){
+      stop("missing classifier")
+    }
+    testPrediction <- do.call(cbind, res)
+    testPrediction <- cbind(rowId = testPrediction[,c(1,3)],testPrediction[,grep('value',colnames(testPrediction))])
+    colnames(testPrediction) <- gsub('\\.value','', colnames(testPrediction))
+    colnames(testPrediction)[1:2] <- c('rowId', 'outcome')
+    dir.create(file.path("StackingEnsembles", database, outcomeId), recursive = TRUE)
+    saveRDS(testPrediction, file.path("StackingEnsembles", database, outcomeId, "testPrediction.Rds"))
+  }
+}
+
+# base learner predictions on external validation
+for (database in databases){
+  for (outcomeId in outcomeIds){
+    for (valDatabase in databases[!databases %in% database]){
+      res <- list()
+      for (classifier in classifiers){
+        if (dir.exists(file.path("DepressionOutcomesResults", database, outcomeId, classifier))){
+          if (dir.exists(file.path("DepressionOutcomesResults", database, "externalValidation", valDatabase, outcomeId, classifier))){
+            pred <- readRDS(file.path("DepressionOutcomesResults", database, "externalValidation", valDatabase, outcomeId, classifier, "validationResult.Rds"))$prediction
+            res[[classifier]] <- pred %>% select(rowId, value, outcomeCount)
+          }
+        }
+      }
+      if (length(res)!=length(classifiers)){
+        stop("missing classifier")
+      }
+      prediction <- do.call(cbind, res)
+      prediction <- cbind(rowId = prediction[,c(1,3)],prediction[,grep('value',colnames(prediction))])
+      colnames(prediction) <- gsub('\\.value','', colnames(prediction))
+      colnames(prediction)[1:2] <- c('rowId', 'outcome')
+      dir.create(file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId), recursive = TRUE)
+      saveRDS(prediction, file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "prediction.Rds"))
+    }
+  }
+}
+
+# internal validation of ensemble models
+for (database in databases){
+  for (outcomeId in outcomeIds){
+    if(dir.exists(file.path("StackingEnsembles", database, outcomeId))){
+      testPrediction <- readRDS(file.path("StackingEnsembles", database, outcomeId, "testPrediction.Rds"))
+      
+      # super learner:
+      cvPrediction <- readRDS(file.path("StackingEnsembles", database, outcomeId, "cvPrediction.Rds"))
+      try({
+        dataF <- cvPrediction[,-1]
+        lrMod <- glm(outcome ~ ., data = dataF, family = "binomial")
+        
+        stackingRisk <- data.frame(value = predict(lrMod, testPrediction[,-c(1:2)], type = "response"),
+                                   rowId = testPrediction[,1],
+                                   outcomeCount = testPrediction[,2])
+        attr(stackingRisk, "metaData")$modelType <- "binary"
+        stackingRisk$evaluation <- "Test"
+        saveRDS(stackingRisk, file.path("StackingEnsembles", database, outcomeId, "stackingRisk.Rds"))
+        
+        stackingEnsemble <- list(auc = PatientLevelPrediction::computeAuc(stackingRisk, confidenceInterval = T),
+                                 brier = PatientLevelPrediction:::brierScore(stackingRisk),
+                                 calDF = PatientLevelPrediction::getCalibrationSummary(stackingRisk, predictionType = "binary", numberOfStrata = 100, truncateFraction = 0.01),
+                                 calInLarge = PatientLevelPrediction:::calibrationInLarge(stackingRisk),
+                                 mod = lrMod)
+        saveRDS(stackingEnsemble, file.path("StackingEnsembles", database, outcomeId, "stackingEnsemble.Rds"))
+        
+        for (valDatabase in databases[!databases %in% database]){
+          if(dir.exists(file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId))){
+            prediction <- readRDS(file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "prediction.Rds"))
+            stackingRisk <- data.frame(value = predict(lrMod, prediction[,-c(1:2)], type = "response"),
+                                       rowId = prediction[,1],
+                                       outcomeCount = prediction[,2])
+            attr(stackingRisk, "metaData")$modelType <- "binary"
+            stackingRisk$evaluation <- "Test"
+            saveRDS(stackingRisk, file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "stackingRisk.Rds"))
+            
+            stackingEnsemble <- list(auc = PatientLevelPrediction::computeAuc(stackingRisk, confidenceInterval = T),
+                                     brier = PatientLevelPrediction:::brierScore(stackingRisk),
+                                     calDF = PatientLevelPrediction::getCalibrationSummary(stackingRisk, predictionType = "binary", numberOfStrata = 100, truncateFraction = 0.01),
+                                     calInLarge = PatientLevelPrediction:::calibrationInLarge(stackingRisk),
+                                     mod = lrMod)
+            saveRDS(stackingEnsemble, file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "stackingEnsemble.Rds"))
+          }
+        }
+      })
+    }
+  }
+}
+
+########## simpler ensembles #################
+
+for (database in databases){
+  for (outcomeId in outcomeIds){
+    if(dir.exists(file.path("StackingEnsembles", database, outcomeId))){
+      testPrediction <- readRDS(file.path("StackingEnsembles", database, outcomeId, "testPrediction.Rds"))
+      cvAucs <- readRDS(file.path("StackingEnsembles", database, outcomeId, "aucs.Rds"))
+      
+      # simple average ensemble:
+      simpleAverageRisk <- data.frame(value = rowMeans(testPrediction[,-c(1:2)]),
+                                      rowId = testPrediction[,1],
+                                      outcomeCount = testPrediction[,2])
+      attr(simpleAverageRisk, "metaData")$modelType <- "binary"
+      simpleAverageRisk$evaluation <- "Test"
+      saveRDS(simpleAverageRisk, file.path("StackingEnsembles", database, outcomeId, "simpleAverageRisk.Rds"))
+      
+      simpleAverageEnsemble <- list(auc = PatientLevelPrediction::computeAuc(simpleAverageRisk, confidenceInterval = T),
+                                    brier = PatientLevelPrediction:::brierScore(simpleAverageRisk),
+                                    calDF = PatientLevelPrediction::getCalibrationSummary(simpleAverageRisk, predictionType = "binary", numberOfStrata = 100, truncateFraction = 0.01),
+                                    calInLarge = PatientLevelPrediction:::calibrationInLarge(simpleAverageRisk))
+      saveRDS(simpleAverageEnsemble, file.path("StackingEnsembles", database, outcomeId, "simpleAverageEnsemble.Rds"))
+      
+      for (valDatabase in databases[!databases %in% database]){
+        if(dir.exists(file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId))){
+          prediction <- readRDS(file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "prediction.Rds"))
+          simpleAverageRisk <- data.frame(value = rowMeans(prediction[,-c(1:2)]),
+                                          rowId = prediction[,1],
+                                          outcomeCount = prediction[,2])
+          attr(simpleAverageRisk, "metaData")$modelType <- "binary"
+          simpleAverageRisk$evaluation <- "Test"
+          saveRDS(simpleAverageRisk, file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "simpleAverageRisk.Rds"))
+          
+          simpleAverageEnsemble <- list(auc = PatientLevelPrediction::computeAuc(simpleAverageRisk, confidenceInterval = T),
+                                        brier = PatientLevelPrediction:::brierScore(simpleAverageRisk),
+                                        calDF = PatientLevelPrediction::getCalibrationSummary(simpleAverageRisk, predictionType = "binary", numberOfStrata = 100, truncateFraction = 0.01),
+                                        calInLarge = PatientLevelPrediction:::calibrationInLarge(simpleAverageRisk))
+          saveRDS(simpleAverageEnsemble, file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "simpleAverageEnsemble.Rds"))
+        }
+      }
+      
+      # AUC weighted ensemble:
+      tauc <- as.numeric(unlist(cvAucs[names(cvAucs)%in%colnames(testPrediction)]))
+      names(tauc) = names(cvAucs)
+      aucWeightedRisk <- data.frame(value = matrix(as.numeric(unlist(testPrediction[,-c(1:2)])), ncol = length(classifiers), byrow = FALSE)%*%(tauc)/sum(tauc),
+                                    rowId = testPrediction[,1],
+                                    outcomeCount = testPrediction[,2])
+      attr(aucWeightedRisk, "metaData")$modelType <- "binary"
+      aucWeightedRisk$evaluation <- "Test"
+      saveRDS(aucWeightedRisk, file.path("StackingEnsembles", database, outcomeId, "aucWeightedRisk.Rds"))
+      
+      aucWeightedEnsemble <- list(auc = PatientLevelPrediction::computeAuc(aucWeightedRisk, confidenceInterval = T),
+                                  brier = PatientLevelPrediction:::brierScore(aucWeightedRisk),
+                                  calDF = PatientLevelPrediction::getCalibrationSummary(aucWeightedRisk, predictionType = "binary", numberOfStrata = 100, truncateFraction = 0.01),
+                                  calInLarge = PatientLevelPrediction:::calibrationInLarge(aucWeightedRisk),
+                                  weights = (tauc)/sum(tauc))
+      saveRDS(aucWeightedEnsemble, file.path("StackingEnsembles", database, outcomeId, "aucWeightedEnsemble.Rds"))
+      
+      for (valDatabase in databases[!databases %in% database]){
+        if(dir.exists(file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId))){
+          prediction <- readRDS(file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "prediction.Rds"))
+          aucWeightedRisk <- data.frame(value = matrix(as.numeric(unlist(prediction[,-c(1:2)])), ncol = length(classifiers), byrow = FALSE)%*%(tauc)/sum(tauc),
+                                        rowId = prediction[,1],
+                                        outcomeCount = prediction[,2])
+          attr(aucWeightedRisk, "metaData")$modelType <- "binary"
+          aucWeightedRisk$evaluation <- "Test"
+          saveRDS(aucWeightedRisk, file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "aucWeightedRisk.Rds"))
+          
+          aucWeightedEnsemble <- list(auc = PatientLevelPrediction::computeAuc(aucWeightedRisk, confidenceInterval = T),
+                                      brier = PatientLevelPrediction:::brierScore(aucWeightedRisk),
+                                      calDF = PatientLevelPrediction::getCalibrationSummary(aucWeightedRisk, predictionType = "binary", numberOfStrata = 100, truncateFraction = 0.01),
+                                      calInLarge = PatientLevelPrediction:::calibrationInLarge(aucWeightedRisk))
+          saveRDS(aucWeightedEnsemble, file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "aucWeightedEnsemble.Rds"))
+        }
+      }
+      
+      # base learner selection (best cross-validated AUC)
+      bestCvLearnerRisk <- data.frame(value = testPrediction[,names(which.max(unlist(cvAucs)))],
+                                      rowId = testPrediction[,1],
+                                      outcomeCount = testPrediction[,2])
+      attr(bestCvLearnerRisk, "metaData")$modelType <- "binary"
+      bestCvLearnerRisk$evaluation <- "Test"
+      saveRDS(bestCvLearnerRisk, file.path("StackingEnsembles", database, outcomeId, "bestCvLearnerRisk.Rds"))
+      
+      bestCvLearnerEnsemble <- list(auc = PatientLevelPrediction::computeAuc(bestCvLearnerRisk, confidenceInterval = T),
+                                    brier = PatientLevelPrediction:::brierScore(bestCvLearnerRisk),
+                                    calDF = PatientLevelPrediction::getCalibrationSummary(bestCvLearnerRisk, predictionType = "binary", numberOfStrata = 100, truncateFraction = 0.01),
+                                    calInLarge = PatientLevelPrediction:::calibrationInLarge(bestCvLearnerRisk),
+                                    bestCvLearner = names(which.max(unlist(cvAucs))))
+      saveRDS(bestCvLearnerEnsemble, file.path("StackingEnsembles", database, outcomeId, "bestCvLearnerEnsemble.Rds"))
+      
+      for (valDatabase in databases[!databases %in% database]){
+        if(dir.exists(file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId))){
+          prediction <- readRDS(file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "prediction.Rds"))
+          bestCvLearnerRisk <- data.frame(value = prediction[,names(which.max(unlist(cvAucs)))],
+                                          rowId = prediction[,1],
+                                          outcomeCount = prediction[,2])
+          attr(bestCvLearnerRisk, "metaData")$modelType <- "binary"
+          bestCvLearnerRisk$evaluation <- "Test"
+          saveRDS(bestCvLearnerRisk, file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "bestCvLearnerRisk.Rds"))
+          
+          bestCvLearnerEnsemble <- list(auc = PatientLevelPrediction::computeAuc(bestCvLearnerRisk, confidenceInterval = T),
+                                        brier = PatientLevelPrediction:::brierScore(bestCvLearnerRisk),
+                                        calDF = PatientLevelPrediction::getCalibrationSummary(bestCvLearnerRisk, predictionType = "binary", numberOfStrata = 100, truncateFraction = 0.01),
+                                        calInLarge = PatientLevelPrediction:::calibrationInLarge(bestCvLearnerRisk))
+          saveRDS(bestCvLearnerEnsemble, file.path("StackingEnsembles", database, "externalValidation", valDatabase, outcomeId, "bestCvLearnerEnsemble.Rds"))
+        }
+      }
+    }
+  }
+}
+
