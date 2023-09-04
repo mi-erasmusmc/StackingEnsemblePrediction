@@ -236,13 +236,11 @@ for (database in databases){
   }
 }
 
-# internal validation of ensemble models
 for (database in databases){
   for (outcomeId in outcomeIds){
     if(dir.exists(file.path("StackingEnsembles", database, outcomeId))){
       testPrediction <- readRDS(file.path("StackingEnsembles", database, outcomeId, "testPrediction.Rds"))
       
-      # super learner:
       cvPrediction <- readRDS(file.path("StackingEnsembles", database, outcomeId, "cvPrediction.Rds"))
       try({
         dataF <- cvPrediction[,-1]
